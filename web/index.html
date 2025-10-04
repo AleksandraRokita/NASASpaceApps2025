@@ -5,20 +5,97 @@
   <title>Exoplanet KOI Classifier</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    h1 {
+        font-size: 3rem;
+        text-align: center;
+        margin: 20px 0;
+        font-weight: 700;
+        text-shadow: 0 2px 6px rgba(0,0,0,0.8); 
+      }
+    * {
+            box-sizing: border-box;
+          }
     :root { --gap: 12px; }
-    body { font-family: system-ui, Arial, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--gap); }
-    .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
+    body  { 
+      font-family: system-ui, Arial, sans-serif; 
+      max-width: 1100px; 
+      margin: 24px auto; 
+      padding: 0 16px; 
+      color: white; /* 🔹 cały tekst na biało */
+      background-image: url("tlo.png");
+      background-size: cover;
+      background-position: center;
+      background-attachment: fixed;
+    }
+
+    .desc {
+  font-size: 0.9rem;
+  color: #fff;   /* 🔹 biały */
+  margin: 6px 0 10px;
+  line-height: 1.25rem;
+}
+    .grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); 
+            gap: var(--gap); 
+          }
+    .card 
+          {
+            display: flex;
+            flex-direction: column;   /* pionowe ułożenie */
+            justify-content: space-between; /* rozdziela opis i input */
+            height: 100%;             /* karta na pełną wysokość w gridzie */
+            border: 1px solid #ddd;;
+            border-radius: 12px; 
+            padding: 12px;
+          }
+
+    .card input 
+          {
+            margin-top: auto;         /* wpycha input na dół */
+          }
     label { display: block; font-weight: 700; margin-bottom: 6px; }
-    .desc { font-size: 0.9rem; color: #444; margin: 6px 0 10px; line-height: 1.25rem; }
-    input { width: 90%; padding: 8px; }
+    
+    input {
+            width: 100%;              /* zawsze na całą szerokość kontenera */
+            box-sizing: border-box;   /* żeby padding/liczenie szerokości było poprawne */
+            padding: 8px;
+            font-size: 1rem;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            margin-bottom: 3px;
+          }
     .btn { padding: 10px 16px; border: 0; border-radius: 10px; cursor: pointer; background: #111; color: #fff; }
     .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .text-block {
+            background: rgba(0, 0, 0, 0.55); /* czarne tło z przezroczystością */
+            padding: 12px 16px;
+            border-radius: 12px;
+            display: inline-block;
+            line-height: 1.5rem;
+          }
     #result { margin-top: 16px; }
   </style>
 </head>
 <body>
+  <div class="text-block">
   <h1>Exoplanet KOI Classifier</h1>
+  <h1> <br></h1>
+ <p><strong>Exoplanets</strong> are worlds that orbit stars beyond our Sun. In just a few decades we’ve confirmed thousands of them with missions like <em>Kepler</em> and <em>TESS</em>, revealing a zoo of planetary types — from hot Jupiters hugging their stars to compact multi-planet systems and rocky worlds in temperate orbits. Most are found by the <em>transit method</em>, where a tiny dip in starlight betrays a planet crossing the stellar disk.</p>
+
+<h3>Why do they matter?</h3>
+<ul>
+  <li><strong>Origins:</strong> They test our theories of how planets and entire systems form and evolve.</li>
+  <li><strong>Diversity:</strong> Strange architectures and sizes challenge “Solar-System-centric” assumptions.</li>
+  <li><strong>Habitability:</strong> Some receive Earth-like stellar energy; a few may even host atmospheres with biosignatures.</li>
+  <li><strong>Comparative worlds:</strong> By contrasting many systems, we learn what makes Earth—and life here—possible.</li>
+  <li><strong>New tools & data:</strong> Exoplanet surveys drive advances in telescopes, statistics, and machine learning.</li>
+</ul>
+
+<p><strong>This demo</strong> uses features from NASA’s Kepler Objects of Interest (KOI) catalog (e.g., transit depth, duration, stellar radius) to estimate whether a signal is a <em>planet candidate</em> or a <em>false positive</em>. Enter values below and click <em>PREDICT</em> to see class probabilities.</p>
+
+
+
   <p id="status">Loading metadata…</p>
 
   <div id="form" class="grid"></div>
@@ -28,6 +105,7 @@
   </div>
 
   <div id="result" class="card" style="display:none;"></div>
+  </div>
 
   <script>
     // If you serve frontend separately (e.g., http://127.0.0.1:8080), keep full URL:
