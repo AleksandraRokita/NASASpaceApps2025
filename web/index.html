@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Exoplanet KOI Classifier</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --gap: 12px; }
+    body { font-family: system-ui, Arial, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--gap); }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
+    label { display: block; font-weight: 700; margin-bottom: 6px; }
+    .desc { font-size: 0.9rem; color: #444; margin: 6px 0 10px; line-height: 1.25rem; }
+    input { width: 100%; padding: 8px; }
+    .btn { padding: 10px 16px; border: 0; border-radius: 10px; cursor: pointer; background: #111; color: #fff; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    #result { margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Exoplanet KOI Classifier</h1>
+  <p id="status">Loading metadata…</p>
+
+  <div id="form" class="grid"></div>
+
+  <div style="margin-top:16px;">
+    <button id="predict" class="btn" disabled>PREDICT</button>
+  </div>
+
+  <div id="result" class="card" style="display:none;"></div>
+
+  <script>
+    // If you serve frontend separately (e.g., http://127.0.0.1:8080), keep full URL:
+    const API_BASE = "http://127.0.0.1:8000"; 
+    // If you mounted static files in FastAPI and open http://127.0.0.1:8000/, you can use:
+    // const API_BASE = "";
+
+    let featureOrder = [];
+    let classNames = [];
+    let medians = {};
+
+    // Human-friendly names and brief meanings for each feature.
+    // Only shown for known keys; unknown keys will show the raw name.
+    const DESCRIPTIONS = {
+      koi_steff: {
+        title: "Stellar Effective Temperature (K)",
+        text: "Approximate surface temperature of the star in Kelvin. Hotter stars emit more energy, which increases a planet’s equilibrium temperature. Typical host stars in Kepler data: 3000–7000 K (Sun = 5778 K)."
+      },
+      koi_slogg: {
+        title: "Stellar Surface Gravity (log g, cgs)",
+        text: "Log10 of surface gravity (cm/s²). Helps characterize the star’s size/class; affects stellar radius estimates and thus transit geometry. Main-sequence stars usually ~4.0–4.7; giants <3.5."
+      },
+      koi_srad: {
+        title: "Stellar Radius (R☉)",
+        text: "Star radius in Solar radii. Larger stars cause shallower relative dips for the same planet size; needed to translate transit depth into planetary radius. Most host stars are 0.5–2 R☉ (Sun = 1.0 R☉)."
+      },
+      ra: {
+        title: "Right Ascension (deg)",
+        text: "Sky coordinate (east–west), in degrees. Positional metadata; not physically causal but part of the dataset record. Value between 0–360°."
+      },
+      dec: {
+        title: "Declination (deg)",
+        text: "Sky coordinate (north–south), in degrees. Positional metadata; not physically causal but part of the dataset record. Value between –90° and +90°. "
+      },
+      koi_kepmag: {
+        title: "Kepler Magnitude (mag)",
+        text: "Brightness of the target in Kepler band. Fainter stars yield noisier light curves; can impact signal-to-noise. Typical stars: 9–16 mag."
+      },
+      koi_period: {
+        title: "Orbital Period (days)",
+        text: "Time for one orbit. Short periods often imply hotter planets; period with stellar mass sets orbital distance. Known exoplanets range from <1 day (hot Jupiters) to hundreds of days. Earth = 365 days."
+      },
+      koi_time0bk: {
+        title: "Transit Epoch (BKJD)",
+        text: "Reference time (Barycentric Kepler Julian Date) of a transit. Used for scheduling and phase folding; not directly causal for classification. Typical values vary 100–1600 BKJD."
+      },
+      koi_duration: {
+        title: "Transit Duration (hours)",
+        text: "How long the star dims during transit. With period and impact parameter, constrains orbital geometry. Common durations: 1–15 h, depending on orbit size and star radius."
+      },
+      koi_impact: {
+        title: "Impact Parameter (0–1)",
+        text: "How centrally the planet crosses the stellar disk (0=center, 1=edge). Affects transit duration/shape. Most values between 0–0.9."
+      },
+      koi_depth: {
+        title: "Transit Depth (ppm)",
+        text: "Drop in brightness in parts-per-million. Roughly proportional to (planet radius / star radius)²; deeper → larger planet. Small rocky planets: ~100–1000 ppm. Giant planets: thousands of ppm."
+      },
+      koi_model_snr: {
+        title: "Transit Signal-to-Noise Ratio",
+        text: "Strength of the transit signal vs. noise. Higher SNR increases confidence the signal is real. Valid detections usually SNR > 7; higher = more reliable."
+      },
+      koi_prad: {
+        title: "Planetary Radius (R⊕)",
+        text: "Estimated planet radius in Earth radii. Derived from depth and stellar radius; informs planet class (e.g., Earth-size vs. Neptune-size).  Range: 0.5–20 R⊕. Earth = 1, Neptune ~4, Jupiter ~11."
+      },
+      koi_teq: {
+        title: "Planetary Equilibrium Temperature (K)",
+        text: "Estimated temperature assuming no atmosphere. Higher values generally mean less hospitable conditions. Habitable-zone planets: 200–350 K. Hot Jupiters: 1000–2000 K."
+      },
+      koi_insol: {
+        title: "Insolation Flux (Earth=1)",
+        text: "Stellar energy received relative to Earth. Near 1 suggests Earth-like irradiation; relates to habitability zone. Habitable planets: ~0.3–2.0. Hot planets often >>10."
+      }
+    };
+
+    function renderField(container, key, medianValue) {
+      const info = DESCRIPTIONS[key] || { title: key, text: "Feature from the KOI dataset." };
+      const wrap = document.createElement("div");
+      wrap.className = "card";
+
+      const label = document.createElement("label");
+      label.setAttribute("for", `feat_${key}`);
+      label.textContent = info.title;
+
+      const desc = document.createElement("div");
+      desc.className = "desc";
+      desc.textContent = info.text;
+
+      const input = document.createElement("input");
+      input.type = "number";
+      input.step = "any";
+      input.id = `feat_${key}`;
+      input.value = medianValue;
+      // zamiast wpisywać medianę, pokazujemy ją jako placeholder
+      if (medianValue !== undefined && medianValue !== null) {
+        input.placeholder = `median = ${medianValue}`;
+      }
+
+      wrap.appendChild(label);
+      wrap.appendChild(desc);
+      wrap.appendChild(input);
+      container.appendChild(wrap);
+    }
+
+
+    async function loadMeta() {
+      const status = document.getElementById("status");
+      const btn = document.getElementById("predict");
+      try {
+        const res = await fetch(`${API_BASE}/metadata`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const meta = await res.json();
+
+        featureOrder = meta.feature_order || [];
+        classNames   = meta.class_names || [];
+        medians      = meta.medians || {};  // <-- needs to be provided by backend
+
+        const form = document.getElementById("form");
+        form.innerHTML = "";
+
+        featureOrder.forEach((f) => {
+          renderField(form, f, medians[f]);
+        });
+
+        status.textContent = "Enter feature values and click PREDICT.";
+        btn.disabled = false;
+      } catch (e) {
+        status.textContent = "Failed to load /metadata. Is the backend running and returning medians?";
+        console.error(e);
+      }
+    }
+
+    async function predict() {
+      const data = {};
+      featureOrder.forEach((f) => {
+        const el = document.getElementById(`feat_${f}`);
+        const v = el.value;
+        if (v !== "") {
+            data[f] = parseFloat(v);
+          } else if (medians[f] !== undefined) {
+            data[f] = medians[f];  // jeśli puste, wstaw medianę
+          }
+        });
+
+      const box = document.getElementById("result");
+      box.style.display = "block";
+      box.textContent = "Computing…";
+
+      try {
+        const res = await fetch(`${API_BASE}/predict`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data })
+        });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out.detail || JSON.stringify(out));
+
+        const probs = out.probabilities || {};
+        const sorted = Object.entries(probs).sort((a,b)=>b[1]-a[1]);
+        box.innerHTML = `
+          <h3>Prediction: ${out.prediction}</h3>
+          <p>Class probabilities:</p>
+          <ul>${sorted.map(([k,v]) => `<li>${k}: ${(v*100).toFixed(2)}%</li>`).join("")}</ul>
+        `;
+      } catch (e) {
+        box.innerHTML = `<strong>Error:</strong> ${e.message}`;
+        console.error(e);
+      }
+    }
+
+    document.getElementById("predict").addEventListener("click", predict);
+    loadMeta();
+  </script>
+</body>
+</html>
